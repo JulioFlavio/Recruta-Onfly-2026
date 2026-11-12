@@ -1,0 +1,1438 @@
+
+> Liste todos os arquivos que você consegue ver nesta sessão
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Encontrei 31 arquivos no diretório do projeto (Teste Onfly), sem contar a
+  pasta .git. Todos estão versionados no git, e não há nenhum arquivo fora do
+  controle de versão nem ignorado pelo .gitignore.
+
+  Raiz
+  - .gitignore
+  - README.md
+  - pyproject.toml
+  - requirements.txt
+  - requirements-dev.txt
+
+  data/
+  - exemplo-validacao.csv (data/exemplo-validacao.csv)
+  - reservas_hoteis.csv (data/reservas_hoteis.csv)
+  - taxas_cambio.csv (data/taxas_cambio.csv)
+
+  entrega/ e output/: ambas só têm um .gitkeep, que serve para manter a pasta
+  vazia no git.
+
+  src/onfly_report/
+  - __init__.py (src/onfly_report/__init__.py), __main__.py
+    (src/onfly_report/__main__.py)
+  - cli.py (src/onfly_report/cli.py)
+  - exceptions.py (src/onfly_report/exceptions.py)
+  - logging_config.py (src/onfly_report/logging_config.py)
+  - models.py (src/onfly_report/models.py)
+  - repositories/: __init__.py (src/onfly_report/repositories/__init__.py),
+    csv_rate_repository.py
+    (src/onfly_report/repositories/csv_rate_repository.py),
+    csv_reservation_repository.py
+    (src/onfly_report/repositories/csv_reservation_repository.py)
+  - services/: __init__.py (src/onfly_report/services/__init__.py),
+    currency_converter.py (src/onfly_report/services/currency_converter.py),
+    report_builder.py (src/onfly_report/services/report_builder.py),
+    row_parser.py (src/onfly_report/services/row_parser.py), status_policy.py
+    (src/onfly_report/services/status_policy.py), stay_calculator.py
+    (src/onfly_report/services/stay_calculator.py)
+
+  tests/
+  - helpers.py (tests/helpers.py)
+  - test_currency.py (tests/test_currency.py)
+  - test_nights.py (tests/test_nights.py)
+  - test_regression_report.py (tests/test_regression_report.py)
+  - test_status_rules.py (tests/test_status_rules.py)
+  - test_top_hotels.py (tests/test_top_hotels.py)
+
+  Por enquanto só listei os nomes, sem abrir o conteúdo de nenhum arquivo.
+  Também consigo acessar arquivos fora do projeto, como meu diretório de memória
+  e o diretório temporário desta sessão, mas não há nada relevante lá.
+
+> Leia o README, prepare meu ambiente e rode os testes já existentes. Liste os
+  problemas que cada teste apresentar, listando as mais prováveis causas e
+  soluções para cada um. Não altere arquivos ou o estado do repositório
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Só há Python 3.14 instalado (o README pede 3.11+, então serve). Vou criar a
+  .venv, que já é ignorada pelo .gitignore.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Os 5 testes falham, como o README antecipa. Agora vou ler o código para
+  confirmar as causas.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● O ambiente está pronto e rodei os testes: os 5 falham, o que o README diz ser
+  esperado no início. Li o código e encontrei a causa de cada falha, além de um
+  sexto defeito que nenhum teste cobre. Não alterei nenhum arquivo versionado.
+
+  Ambiente: a única versão de Python instalada é a 3.14.4, que atende ao
+  requisito "3.11+". Criei a .venv com ela e instalei pytest 8.3.4 e ruff 0.8.4.
+  Isso deixou duas pastas novas, .venv/ e tests/__pycache__/, ambas ignoradas
+  pelo .gitignore, então o git status continua limpo. Se o avaliador usar
+  exatamente o 3.11, vale testar nessa versão no fim.
+
+  Falhas por teste
+
+  1. test_currency_conversion_to_brl: esperado 642.00, obtido 118.45
+
+  - Causa: currency_converter.py:11
+    (src/onfly_report/services/currency_converter.py#L11) faz float(amount) /
+    float(rate). Divide em vez de multiplicar (100 / 5.42 = 18.45; somado aos
+    100 BRL dá 118.45) e ainda passa por float, o que o README proíbe para
+    dinheiro.
+  - Solução: return amount * rates[currency], tudo em Decimal.
+
+  2. test_nights_across_month_boundary: esperado 3, obtido -28
+
+  - Causa: stay_calculator.py:10
+    (src/onfly_report/services/stay_calculator.py#L10) subtrai só o dia do mês
+    (checkout.day - checkin.day, ou seja, 2 − 30 = −28). Quebra em qualquer
+    virada de mês ou ano.
+  - Solução: (checkout - checkin).days * rooms.
+
+  3. test_status_rules_exclude_cancelled_and_no_show: esperado 100.00, obtido
+  120.00
+
+  - Causa: status_policy.py:8 (src/onfly_report/services/status_policy.py#L8)
+    usa status != "CANCELLED", então NO_SHOW (os 20.00) entra como faturável.
+  - Solução: return status == "CONFIRMED". Uma lista de permissões é mais segura
+    do que uma de exclusões.
+
+  4. test_top_hotels_are_ranked_descending: esperado H01, H02, H03, obtido H04,
+  H03, H02
+
+  - Causa: report_builder.py:91
+    (src/onfly_report/services/report_builder.py#L91) ordena por (amount,
+    hotel_id) em ordem crescente, quando o ranking deveria ser decrescente.
+  - Solução: key=lambda item: (-item[1]["amount"], item[0]). Isso deixa o valor
+    decrescente e o desempate por hotel_id crescente, como o README pede. Usar
+    reverse=True erraria o desempate.
+
+  5. test_regression_report_on_sample: total_amount_brl saiu 1018.45 (esperado
+  1542.00) e average_nightly_rate_brl saiu 203.69 (esperado 308.40)
+
+  - Causa: é o mesmo defeito de câmbio do item 1. As contagens e as noites já
+    batem neste teste porque ele não tem NO_SHOW nem virada de mês.
+  - Solução: a mesma do item 1. Depois dela, a média fica 1542 / 5 = 308.40.
+
+  Defeito extra, não coberto pelos testes
+
+  - csv_reservation_repository.py:47-48
+    (src/onfly_report/repositories/csv_reservation_repository.py#L47-L48) para
+    de ler depois de 200 linhas, mas data/reservas_hoteis.csv tem 300 reservas.
+    O relatório real sairia com totais e contagens menores sem nenhum aviso,
+    mesmo com todos os testes passando.
+  - Solução: remover o if len(rows) == 200: break. Vale criar um teste novo com
+    mais de 200 linhas para cobrir isso.
+
+  Pontos a conferir, sem impacto nos testes atuais
+
+  - O README diz que --top deve ser um inteiro ≥ 1 e o código já valida isso,
+    mas convém um teste de código de saída 2 para argumentos inválidos.
+  - Depois das correções, rode o CLI em data/exemplo-validacao.csv e compare com
+    a tabela de amostra do README (total de 7566.00, 28 noites, média de
+    270.21). Ela cobre câmbio em EUR e USD, os três status e a virada de mês
+    juntos.
+
+  Com as quatro primeiras correções, os 5 testes devem passar. Posso aplicá-las
+  quando você quiser.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\julio\OneDrive\Documentos\Teste
+  Onfly\tests\test_regression_report.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> onde a função test_regression_report_sample está sendo chamada?
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Ela não é chamada em nenhum lugar do código, e isso é proposital: quem chama é
+  o pytest. (O nome completo é test_regression_report_on_sample.) A busca
+  confirma que o nome só aparece na própria definição, em
+  test_regression_report.py:6 (tests/test_regression_report.py#L6).
+
+  Quando você roda pytest -q, acontece o seguinte:
+
+  1. O pytest lê o pyproject.toml, onde testpaths = ["tests"] diz em qual pasta
+     procurar.
+  2. Lá dentro ele carrega os arquivos cujo nome segue o padrão test_*.py. É o
+     caso de test_regression_report.py.
+  3. Em cada arquivo, ele executa as funções cujo nome começa com test. É o caso
+     de test_regression_report_on_sample.
+  4. A função pede um parâmetro tmp_path, e o pytest o fornece automaticamente.
+     É uma fixture nativa que cria uma pasta temporária para cada teste.
+
+  Dentro do teste, quem faz o trabalho é run_cli, de helpers.py:52
+  (tests/helpers.py#L52). Ela grava um CSV temporário e executa o CLI de verdade
+  num subprocesso (python -m onfly_report ...). Depois lê o JSON gerado, que é
+  onde as asserções atuam.
+
+  Para rodar só esse teste:
+
+  .venv/Scripts/python -m pytest
+  tests/test_regression_report.py::test_regression_report_on_sample -v
+
+> <ide_opened_file>The user opened the file
+  c:\Users\julio\OneDrive\Documentos\Teste
+  Onfly\src\onfly_report\repositories\csv_reservation_repository.py in the IDE.
+  This may or may not be related to the current task.</ide_opened_file>
+
+> Crie um teste para scv reservation dentro da pasta de testes
+
+● Write(tests\test_csv_reservation_repository.py)
+  ⎿  Wrote 68 lines to tests\test_csv_reservation_repository.py
+      1 """Testes do repositório que lê a exportação de reservas em CSV."
+        ""
+      2
+      3 from __future__ import annotations
+      4
+      5 import csv
+      6 from pathlib import Path
+      7
+      8 import pytest
+      9 from helpers import BASE, COLUMNS
+     … +59 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● O teste de 300 linhas passou, mas pelo código que li antes ele deveria falhar.
+  Vou verificar se o arquivo mudou.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Criei tests/test_csv_reservation_repository.py com 5 testes para o
+  CsvReservationRepository. Os 5 passam e o ruff não aponta nenhum problema.
+
+  Teste: test_reads_every_row_without_limit
+  O que verifica: Lê as 300 linhas, sem descartar nenhuma; é o defeito do limite
+
+    de 200
+  ────────────────────────────────────────
+  Teste: test_keeps_raw_values_and_physical_line_numbers
+  O que verifica: Devolve os valores como texto, sem converter, e com o número
+    real da linha no arquivo, mesmo quando o nome do hotel tem vírgula ("Hotel
+    Madrid, Gran Vía")
+  ────────────────────────────────────────
+  Teste: test_empty_file_with_header_returns_no_rows
+  O que verifica: Um arquivo só com cabeçalho devolve lista vazia
+  ────────────────────────────────────────
+  Teste: test_missing_required_column_raises_input_error
+  O que verifica: Sem uma coluna obrigatória, levanta InputFileError citando a
+    coluna
+  ────────────────────────────────────────
+  Teste: test_missing_file_raises_input_error
+  O que verifica: Um arquivo inexistente levanta InputFileError
+
+  O teste das 300 linhas só passou porque o limite de 200 já foi removido em
+  csv_reservation_repository.py:46
+  (src/onfly_report/repositories/csv_reservation_repository.py#L46). Eu não
+  editei esse arquivo; imagino que tenha sido você pelo editor. O git diff
+  mostra só a remoção das duas linhas do if len(rows) == 200: break, que é a
+  correção certa. Sem essa mudança, esse teste falharia e os outros quatro
+  passariam.
+
+  O arquivo novo ainda não foi commitado.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\julio\OneDrive\Documentos\Teste Onfly\data\exemplo-validacao.csv in
+  the IDE. This may or may not be related to the current
+  task.</ide_opened_file>
+
+> Verifique o projeto novamente, rode os testes implementados e veja se há algo
+  além que requer atenção. Considere também melhorias e pontos fracos do
+  código
+  ⎿  You've hit your 5-hour limit · resets 5:20pm (America/Sao_Paulo)
+     /upgrade to increase your usage limit.
+
+> Verifique o projeto novamente, rode os testes implementados e veja se há algo
+  além que requer atenção. Considere também melhorias e pontos fracos do
+  código
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● O git status está limpo e os 10 testes passam. Vou ver o que foi commitado
+  desde a última vez.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Você commitou as 5 correções e o teste novo. Agora vou rodar o CLI na amostra
+  de validação e no dataset completo, e testar alguns casos de borda.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● A amostra bate 100% com o README. Agora vou inspecionar o dataset completo
+  atrás de formatos que o código pode tratar mal.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● O dataset está limpo, sem duplicatas nem códigos inconsistentes. Agora vou
+  recalcular o relatório de forma independente para conferir a saída do CLI.
+  · summary
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● O CLI bate com o recálculo independente no relatório completo. Por último, vou
+  sondar alguns pontos fracos que vi no código.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● As cinco correções que você commitou estão certas. Os 10 testes passam, o ruff
+  não aponta nada e o CLI gera o relatório exatamente como o README pede. Não
+  achei nenhum defeito restante dentro do contrato; o que sobra são pontos
+  fracos com entradas fora do padrão, que os dados atuais não têm.
+
+  Situação atual
+
+  - Testes: os 10 passam (5 fornecidos e os 5 do repositório CSV).
+  - Amostra de validação: os números saíram iguais aos da tabela do README,
+    campo a campo.
+  - Dataset completo: 300 reservas, 235 confirmadas, 1347 noites, total de R$
+    396.170,00. Recalculei tudo por um script separado do código do projeto e o
+    summary, o by_month e o top_hotels bateram.
+  - Argumentos e códigos de saída: --top abc, --top 0 e um arquivo inexistente
+    terminam com código 2, como o contrato pede.
+  - Dados: o dataset está limpo. Não tem IDs duplicados, espaços sobrando,
+    check-out antes do check-in nem moeda ou status fora do esperado. Como as
+    falhas abaixo dependem de entradas assim, nenhuma delas muda o relatório
+    atual.
+
+  Pontos fracos encontrados
+
+  Testei cada um com um CSV temporário:
+
+  #: 1
+  Entrada: Moeda sem taxa (GBP)
+  Comportamento atual: KeyError, código 1
+  Problema: O contrato diz que entrada inválida retorna 2. Hoje cai como "erro
+    inesperado" e mostra um traceback
+  Sugestão: Em convert_to_brl, transformar a moeda ausente em
+    InputFileError("moeda sem taxa: GBP (linha N)")
+  ────────────────────────────────────────
+  #: 2
+  Entrada: Moeda em minúsculas (usd)
+  Comportamento atual: KeyError, código 1
+  Problema: O leitor de taxas converte a moeda para maiúsculas, mas o
+    row_parser.py:34 (src/onfly_report/services/row_parser.py#L34) não. É uma
+    inconsistência entre os dois leitores
+  Sugestão: Adicionar .upper() no parser
+  ────────────────────────────────────────
+  #: 3
+  Entrada: Status desconhecido (PENDING, confirmed)
+  Comportamento atual: Código 0, mas a linha entra só em total_reservations
+  Problema: A soma das três contagens fica diferente do total, sem nenhum aviso
+  Sugestão: Normalizar com .upper() e rejeitar ou registrar em log qualquer
+    status fora dos três válidos
+  ────────────────────────────────────────
+  #: 4
+  Entrada: Check-out antes do check-in
+  Comportamento atual: Noites negativas (−2), código 0
+  Problema: Distorce os totais e a média sem nenhum erro
+  Sugestão: Validar no parser: checkout > checkin, rooms ≥ 1 e amount ≥ 0
+  ────────────────────────────────────────
+  #: 5
+  Entrada: rooms = 0
+  Comportamento atual: 0 noites, mas o valor entra no total
+  Problema: Gera valor sem noites, o que infla a média
+  Sugestão: Coberto pela validação do item 4
+  ────────────────────────────────────────
+  #: 6
+  Entrada: CSV com BOM (comum em exportações do Excel)
+  Comportamento atual: Código 2: "coluna reservation_id ausente"
+  Problema: Rejeita um arquivo que na verdade é válido
+  Sugestão: Abrir com encoding="utf-8-sig" nos dois repositórios
+
+  O dataset da tarefa não tem nenhum desses casos, então são melhorias de
+  robustez e não correções obrigatórias. Os itens 1 e 4 são os mais defensáveis:
+  o primeiro descumpre o contrato de códigos de saída, e o segundo produz
+  números errados sem nenhum erro.
+
+  Qualidade do código
+
+  - currency_converter.py:10
+    (src/onfly_report/services/currency_converter.py#L10): o Decimal(...) em
+    volta de amount * rates[currency] é redundante, porque o produto de dois
+    Decimal já é Decimal. Pode ficar só return amount * rates[currency].
+  - report_builder.py:73 (src/onfly_report/services/report_builder.py#L73): se
+    um hotel_id aparecer com nomes diferentes, vale o da última linha lida. Os
+    dados atuais são consistentes, então hoje isso não muda nada.
+  - A soma dos total_brl do by_month (já arredondados) não bate exatamente com o
+    total_amount_brl. Isso está correto: o README manda arredondar só na
+    serialização. Vale citar no README-ENTREGA para ninguém achar que é bug.
+  - No Git Bash do Windows, os acentos das mensagens de log aparecem quebrados
+    ("n�o"). É só a codificação do terminal; o JSON é gravado corretamente em
+    UTF-8.
+
+  Testes que ainda faltam
+
+  - A virada de ano (31/12 → 02/01) e a multiplicação por rooms > 1.
+  - O desempate do top_hotels por hotel_id quando dois hotéis têm o mesmo valor.
+  - O arredondamento half-up de um valor terminado em ,005.
+  - average_nightly_rate_brl igual a "0.00" quando não há reserva confirmada.
+  - A ordem e o conteúdo do by_month.
+  - Os códigos de saída: 2 para --top 0, para arquivo ausente e para moeda sem
+    taxa (este último só passa depois do item 1).
+
+  Pendências da entrega
+
+  - A pasta entrega/ ainda não tem o README-ENTREGA.md nem, como você usou IA, a
+    uso-de-ia/ com sessao.md e declaracao.md.
+  - O README pede, para cada defeito, a causa raiz em uma frase. Seus commits já
+    têm esse conteúdo e servem de base.
+  - Vale incluir o defeito do limite de 200 linhas: nenhum teste fornecido o
+    pega, então citá-lo mostra que você foi além dos testes.
+
+  Não alterei nenhum arquivo nesta rodada. As saídas do CLI ficaram só na pasta
+  temporária da sessão (C:\Users\julio\AppData\Local\Temp\claude\a78f0bfa7f08c0d
+  a\db39d46f-feaa-4343-9247-6f838842c2ab\scratchpad). Posso implementar os itens
+  1 a 6 com os testes correspondentes, ou rascunhar o README-ENTREGA.md.
+> Verifique no README se algum destes pontos não pode ser alterado. Para os que
+  puderem, faça as alterações que aumentam a qualidade e escalabilidade do
+  código.
+
+● O README só proíbe mudar o comando e os argumentos do CLI, o schema e a
+  semântica do relatório, os dois CSVs de dados e os testes fornecidos. Ele
+  permite reorganizar o código interno, melhorar logs e adicionar testes, e
+  todos os seis pontos se encaixam nisso. Vou ler os arquivos antes de editar.
+
+  Read 8 files (ctrl+o to expand)
+
+● Antes de editar, verifiquei cada item no README: os itens 1 a 6 podem mudar,
+  pois só alteram entradas inválidas, e o arredondamento do by_month e o
+  conflito de nome de hotel ficam como estão. Vou também processar as linhas uma
+  a uma, sem carregar o arquivo inteiro na memória. · summary
+
+● Write(src\onfly_report\services\status_policy.py)
+  ⎿  Added 7 lines, removed 1 line
+       2  
+       3  from __future__ import annotations
+       4  
+       5 +CONFIRMED = "CONFIRMED"                                        
+       6 +CANCELLED = "CANCELLED"                                        
+       7 +NO_SHOW = "NO_SHOW"                                            
+       8  
+       9 +VALID_STATUSES = frozenset({CONFIRMED, CANCELLED, NO_SHOW})    
+      10 +                                                               
+      11 +                                                               
+      12  def is_billable(status: str) -> bool:
+      13      """Indica se a reserva entra nos totais financeiros e de no
+          ites."""
+       8 -    return status == "CONFIRMED"                               
+      14 +    return status == CONFIRMED                                 
+
+● Write(src\onfly_report\exceptions.py)
+  ⎿  Added 8 lines
+       7  
+       8  class InputFileError(DomainError):
+       9      """Arquivo de entrada ausente, ilegível ou fora do formato 
+          esperado."""
+      10 +                                                               
+      11 +                                                               
+      12 +class UnknownCurrencyError(InputFileError):                    
+      13 +    """Moeda da reserva sem taxa de câmbio na tabela."""       
+      14 +                                                               
+      15 +    def __init__(self, currency: str) -> None:                 
+      16 +        super().__init__(f"moeda sem taxa de câmbio: {currency}
+         +")                                                             
+      17 +        self.currency = currency                               
+
+● Write(src\onfly_report\services\currency_converter.py)
+  ⎿  Added 9 lines, removed 2 lines
+       2  
+       3  from __future__ import annotations
+       4  
+       5 +from collections.abc import Mapping                            
+       6  from decimal import Decimal
+       7  
+       8 +from ..exceptions import UnknownCurrencyError                  
+       9  
+       8 -def convert_to_brl(amount: Decimal, currency: str, rates: dict[
+         -str, Decimal]) -> Decimal:                                     
+      10 +                                                               
+      11 +def convert_to_brl(amount: Decimal, currency: str, rates: Mappi
+         +ng[str, Decimal]) -> Decimal:                                  
+      12      """Converte um valor na moeda informada para BRL usando a t
+          axa da tabela."""
+      10 -    return amount * rates[currency]                            
+      13 +    try:                                                       
+      14 +        rate = rates[currency]                                 
+      15 +    except KeyError:                                           
+      16 +        raise UnknownCurrencyError(currency) from None         
+      17 +    return amount * rate                                       
+
+● Write(src\onfly_report\services\row_parser.py)
+  ⎿  Added 42 lines, removed 15 lines
+       7  
+       8  from ..exceptions import InputFileError
+       9  from ..models import RawRow, Reservation
+      10 +from .status_policy import VALID_STATUSES                      
+      11  
+      12  
+      13  class RowParser:
+     ...
+      19  
+      20      def parse(self, raw: RawRow) -> Reservation:
+      21          values = raw.values
+      22 +                                                               
+      23 +        def text(column: str) -> str:                          
+      24 +            return (values.get(column) or "").strip()          
+      25 +                                                               
+      26          try:
+      22 -            return Reservation(                                
+      23 -                reservation_id=(values.get("reservation_id") or
+         - "").strip(),                                                  
+      24 -                traveler_name=(values.get("traveler_name") or "
+         -").strip(),                                                    
+      25 -                company_id=(values.get("company_id") or "").str
+         -ip(),                                                          
+      26 -                hotel_id=(values.get("hotel_id") or "").strip()
+         -,                                                              
+      27 -                hotel_name=(values.get("hotel_name") or "").str
+         -ip(),                                                          
+      28 -                city=(values.get("city") or "").strip(),       
+      29 -                country=(values.get("country") or "").strip(), 
+      30 -                checkin=date.fromisoformat((values.get("checkin
+         -_date") or "").strip()),                                       
+      31 -                checkout=date.fromisoformat((values.get("checko
+         -ut_date") or "").strip()),                                     
+      32 -                rooms=int((values.get("rooms") or "").strip()),
+      33 -                status=(values.get("status") or "").strip(),   
+      34 -                currency=(values.get("currency") or "").strip()
+         -,                                                              
+      35 -                amount=Decimal((values.get("amount") or "").str
+         -ip()),                                                         
+      36 -                payment_method=(values.get("payment_method") or
+         - "").strip(),                                                  
+      27 +            reservation = Reservation(                         
+      28 +                reservation_id=text("reservation_id"),         
+      29 +                traveler_name=text("traveler_name"),           
+      30 +                company_id=text("company_id"),                 
+      31 +                hotel_id=text("hotel_id"),                     
+      32 +                hotel_name=text("hotel_name"),                 
+      33 +                city=text("city"),                             
+      34 +                country=text("country"),                       
+      35 +                checkin=date.fromisoformat(text("checkin_date")
+         +),                                                             
+      36 +                checkout=date.fromisoformat(text("checkout_date
+         +")),                                                           
+      37 +                rooms=int(text("rooms")),                      
+      38 +                status=text("status").upper(),                 
+      39 +                currency=text("currency").upper(),             
+      40 +                amount=Decimal(text("amount")),                
+      41 +                payment_method=text("payment_method"),         
+      42                  line_number=raw.line_number,
+      43              )
+      44          except (ValueError, InvalidOperation) as err:
+      45              raise InputFileError(f"linha {raw.line_number} invá
+          lida: {err}") from err
+      46 +                                                               
+      47 +        problem = self._find_problem(reservation)              
+      48 +        if problem:                                            
+      49 +            raise InputFileError(f"linha {raw.line_number} invá
+         +lida: {problem}")                                              
+      50 +        return reservation                                     
+      51 +                                                               
+      52 +    @staticmethod                                              
+      53 +    def _find_problem(reservation: Reservation) -> str | None: 
+      54 +        """Regras de consistência que o tipo sozinho não garant
+         +e."""                                                          
+      55 +        if reservation.status not in VALID_STATUSES:           
+      56 +            return f"status desconhecido {reservation.status!r}
+         + (esperado: {', '.join(sorted(VALID_STATUSES))})"              
+      57 +        if not reservation.hotel_id:                           
+      58 +            return "hotel_id vazio"                            
+      59 +        if not reservation.currency:                           
+      60 +            return "currency vazia"                            
+      61 +        if reservation.checkout <= reservation.checkin:        
+      62 +            return f"checkout ({reservation.checkout}) deve ser
+         + posterior ao checkin ({reservation.checkin})"                 
+      63 +        if reservation.rooms < 1:                              
+      64 +            return f"rooms deve ser >= 1 (recebido {reservation
+         +.rooms})"                                                      
+      65 +        if not reservation.amount.is_finite() or reservation.am
+         +ount < 0:                                                      
+      66 +            return f"amount deve ser um número >= 0 (recebido {
+         +reservation.amount})"                                          
+      67 +        return None                                            
+
+● Write(src\onfly_report\repositories\csv_reservation_repository.py)
+  ⎿  Added 10 lines, removed 6 lines
+      3  from __future__ import annotations
+      4  
+      5  import csv
+      6 +from collections.abc import Iterator                            
+      7  from pathlib import Path
+      8  
+      9  from ..exceptions import InputFileError
+     ...
+      29  
+      30  
+      31  class CsvReservationRepository:
+      31 -    """Lê a exportação de reservas sem aplicar regra de negócio
+         -."""                                                           
+      32 +    """Lê a exportação de reservas sem aplicar regra de negócio
+         +.                                                              
+      33  
+      34 +    As linhas são entregues uma a uma (streaming): o consumo de
+         + memória não cresce com o                                      
+      35 +    tamanho do arquivo.                                        
+      36 +    """                                                        
+      37 +                                                               
+      38      def __init__(self, path: Path) -> None:
+      39          self._path = path
+      40  
+      36 -    def read(self) -> list[RawRow]:                            
+      41 +    def read(self) -> Iterator[RawRow]:                        
+      42          try:
+      38 -            with self._path.open("r", encoding="utf-8", newline
+         -="") as handle:                                                
+      43 +            # utf-8-sig aceita arquivos com BOM (comum em expor
+         +tações do Excel) e sem BOM.                                    
+      44 +            with self._path.open("r", encoding="utf-8-sig", new
+         +line="") as handle:                                            
+      45                  reader = csv.DictReader(handle)
+      46                  missing = [column for column in REQUIRED_COLUMN
+          S if column not in (reader.fieldnames or [])]
+      47                  if missing:
+      48                      raise InputFileError(f"colunas obrigatórias
+           ausentes: {', '.join(missing)}")
+      49  
+      44 -                rows: list[RawRow] = []                        
+      50                  for values in reader:
+      46 -                    rows.append(RawRow(line_number=reader.line_
+         -num, values=values))                                           
+      47 -                return rows                                    
+      51 +                    yield RawRow(line_number=reader.line_num, v
+         +alues=values)                                                  
+      52          except FileNotFoundError as err:
+      53              raise InputFileError(f"arquivo de reservas não enco
+          ntrado: {self._path}") from err
+      54          except (OSError, csv.Error) as err:
+
+● Update(src\onfly_report\repositories\csv_rate_repository.py)
+  ⎿  Added 1 line, removed 1 line
+      20      def read(self) -> dict[str, Decimal]:
+      21          rates: dict[str, Decimal] = {}
+      22          try:
+      23 -            with self._path.open("r", encoding="utf-8", newline
+         -="") as handle:                                                
+      23 +            with self._path.open("r", encoding="utf-8-sig", new
+         +line="") as handle:                                            
+      24                  reader = csv.DictReader(handle)
+      25                  missing = [column for column in REQUIRED_COLUMN
+          S if column not in (reader.fieldnames or [])]
+      26                  if missing:
+
+● Write(src\onfly_report\services\report_builder.py)
+  ⎿  Added 96 lines, removed 62 lines
+       2  
+       3  from __future__ import annotations
+       4  
+       5 -from collections import defaultdict                            
+       5 +import logging                                                 
+       6 +from collections import Counter, defaultdict                   
+       7 +from dataclasses import dataclass, field                       
+       8  from datetime import datetime, timedelta, timezone
+       9  from decimal import ROUND_HALF_UP, Decimal
+      10  
+      11 +from ..exceptions import InputFileError, UnknownCurrencyError  
+      12 +from ..models import Reservation                               
+      13  from ..repositories.csv_rate_repository import CsvRateRepositor
+          y
+      14  from ..repositories.csv_reservation_repository import CsvReserv
+          ationRepository
+      15  from .currency_converter import convert_to_brl
+      16  from .row_parser import RowParser
+      13 -from .status_policy import is_billable                         
+      17 +from .status_policy import CANCELLED, CONFIRMED, NO_SHOW, is_bi
+         +llable                                                         
+      18  from .stay_calculator import calculate_room_nights
+      19  
+      20 +logger = logging.getLogger(__name__)                           
+      21 +                                                               
+      22 +REPORT_VERSION = "1.0"                                         
+      23  MONEY_QUANTUM = Decimal("0.01")
+      24  FIXED_OFFSET = timezone(timedelta(hours=-3))
+      25  
+     ...
+      29      return str(value.quantize(MONEY_QUANTUM, rounding=ROUND_HAL
+          F_UP))
+      30  
+      31  
+      32 +@dataclass                                                     
+      33 +class _Bucket:                                                 
+      34 +    """Acumulador de reservas faturáveis (valores exatos, sem a
+         +rredondamento)."""                                             
+      35 +                                                               
+      36 +    reservations: int = 0                                      
+      37 +    room_nights: int = 0                                       
+      38 +    amount: Decimal = field(default_factory=Decimal)           
+      39 +                                                               
+      40 +    def add(self, room_nights: int, amount: Decimal) -> None:  
+      41 +        self.reservations += 1                                 
+      42 +        self.room_nights += room_nights                        
+      43 +        self.amount += amount                                  
+      44 +                                                               
+      45 +                                                               
+      46 +@dataclass                                                     
+      47 +class _HotelBucket(_Bucket):                                   
+      48 +    hotel_name: str = ""                                       
+      49 +                                                               
+      50 +                                                               
+      51  class ReportBuilder:
+      26 -    """Orquestra leitura, conversão e agregação."""            
+      52 +    """Orquestra leitura, conversão e agregação em uma única pa
+         +ssada pelo arquivo."""                                         
+      53  
+      54      def __init__(
+      55          self,
+     ...
+       64          self._now = now
+       65  
+       66      def build(self) -> dict:
+       41 -        parser = RowParser()                                  
+       42 -        reservations = [parser.parse(raw) for raw in self._res
+          -ervation_repository.read()]                                   
+       67          rates = self._rate_repository.read()
+       68 +        parser = RowParser()                                  
+       69  
+       45 -        status_counts = {"CONFIRMED": 0, "CANCELLED": 0, "NO_S
+          -HOW": 0}                                                      
+       46 -        for reservation in reservations:                      
+       47 -            status_counts[reservation.status] = status_counts.
+          -get(reservation.status, 0) + 1                                
+       70 +        status_counts: Counter[str] = Counter()               
+       71 +        total = _Bucket()                                     
+       72 +        monthly: defaultdict[str, _Bucket] = defaultdict(_Buck
+          +et)                                                           
+       73 +        hotels: defaultdict[str, _HotelBucket] = defaultdict(_
+          +HotelBucket)                                                  
+       74  
+       49 -        confirmed = [row for row in reservations if is_billabl
+          -e(row.status)]                                                
+       75 +        # ler → converter tipos → contar status → filtrar CONF
+          +IRMED → agregar (linha a linha)                               
+       76 +        for raw in self._reservation_repository.read():       
+       77 +            reservation = parser.parse(raw)                   
+       78 +            status_counts[reservation.status] += 1            
+       79 +            if not is_billable(reservation.status):           
+       80 +                continue                                      
+       81  
+       51 -        monthly: dict[str, dict] = defaultdict(               
+       52 -            lambda: {"reservations": 0, "room_nights": 0, "amo
+          -unt": Decimal("0")}                                           
+       53 -        )                                                     
+       54 -        hotels: dict[str, dict] = defaultdict(                
+       55 -            lambda: {"hotel_name": "", "room_nights": 0, "amou
+          -nt": Decimal("0")}                                            
+       56 -        )                                                     
+       82 +            room_nights = calculate_room_nights(reservation.ch
+          +eckin, reservation.checkout, reservation.rooms)               
+       83 +            amount_brl = self._convert(reservation, rates)    
+       84  
+       58 -        total_nights = 0                                      
+       59 -        total_amount = Decimal("0")                           
+       85 +            total.add(room_nights, amount_brl)                
+       86 +            monthly[reservation.checkin.strftime("%Y-%m")].add
+          +(room_nights, amount_brl)                                     
+       87 +            hotel = hotels[reservation.hotel_id]              
+       88 +            hotel.hotel_name = reservation.hotel_name         
+       89 +            hotel.add(room_nights, amount_brl)                
+       90  
+       61 -        for row in confirmed:                                 
+       62 -            room_nights = calculate_room_nights(row.checkin, r
+          -ow.checkout, row.rooms)                                       
+       63 -            amount_brl = convert_to_brl(row.amount, row.curren
+          -cy, rates)                                                    
+       91 +        total_reservations = sum(status_counts.values())      
+       92 +        logger.info(                                          
+       93 +            "%d reservas lidas (%d faturáveis, %d hotéis, %d m
+          +eses)",                                                       
+       94 +            total_reservations,                               
+       95 +            total.reservations,                               
+       96 +            len(hotels),                                      
+       97 +            len(monthly),                                     
+       98 +        )                                                     
+       99  
+       65 -            total_nights += room_nights                       
+       66 -            total_amount += amount_brl                        
+      100 +        return {                                              
+      101 +            "report_version": REPORT_VERSION,                 
+      102 +            "generated_at": (self._now or datetime.now(FIXED_O
+          +FFSET)).isoformat(timespec="seconds"),                        
+      103 +            "summary": {                                      
+      104 +                "total_reservations": total_reservations,     
+      105 +                "confirmed_reservations": status_counts[CONFIR
+          +MED],                                                         
+      106 +                "cancelled_reservations": status_counts[CANCEL
+          +LED],                                                         
+      107 +                "no_show_reservations": status_counts[NO_SHOW]
+          +,                                                             
+      108 +                "total_room_nights": total.room_nights,       
+      109 +                "total_amount_brl": format_money(total.amount)
+          +,                                                             
+      110 +                "average_nightly_rate_brl": format_money(self.
+          +_average_nightly_rate(total)),                                
+      111 +            },                                                
+      112 +            "by_month": self._by_month(monthly),              
+      113 +            "top_hotels": self._top_hotels(hotels),           
+      114 +        }                                                     
+      115  
+       68 -            month_key = row.checkin.strftime("%Y-%m")         
+       69 -            monthly[month_key]["reservations"] += 1           
+       70 -            monthly[month_key]["room_nights"] += room_nights  
+       71 -            monthly[month_key]["amount"] += amount_brl        
+      116 +    @staticmethod                                             
+      117 +    def _convert(reservation: Reservation, rates: dict[str, De
+          +cimal]) -> Decimal:                                           
+      118 +        try:                                                  
+      119 +            return convert_to_brl(reservation.amount, reservat
+          +ion.currency, rates)                                          
+      120 +        except UnknownCurrencyError as err:                   
+      121 +            raise InputFileError(f"linha {reservation.line_num
+          +ber} inválida: {err}") from err                               
+      122  
+       73 -            hotels[row.hotel_id]["hotel_name"] = row.hotel_nam
+          -e                                                             
+       74 -            hotels[row.hotel_id]["room_nights"] += room_nights
+       75 -            hotels[row.hotel_id]["amount"] += amount_brl      
+      123 +    @staticmethod                                             
+      124 +    def _average_nightly_rate(total: _Bucket) -> Decimal:     
+      125 +        if total.room_nights <= 0:                            
+      126 +            return Decimal("0")                               
+      127 +        return total.amount / Decimal(total.room_nights)      
+      128  
+       77 -        average_nightly_rate = (                              
+       78 -            total_amount / Decimal(total_nights) if total_nigh
+          -ts > 0 else Decimal("0")                                      
+       79 -        )                                                     
+       80 -                                                              
+       81 -        by_month = [                                          
+      129 +    @staticmethod                                             
+      130 +    def _by_month(monthly: dict[str, _Bucket]) -> list[dict]: 
+      131 +        return [                                              
+      132              {
+      133                  "month": month,
+       84 -                "reservations": data["reservations"],         
+       85 -                "room_nights": data["room_nights"],           
+       86 -                "total_brl": format_money(data["amount"]),    
+      134 +                "reservations": bucket.reservations,          
+      135 +                "room_nights": bucket.room_nights,            
+      136 +                "total_brl": format_money(bucket.amount),     
+      137              }
+       88 -            for month, data in sorted(monthly.items())        
+      138 +            for month, bucket in sorted(monthly.items())      
+      139          ]
+      140  
+       91 -        ranked_hotels = sorted(hotels.items(), key=lambda item
+          -: (-item[1]["amount"], item[0]))                              
+       92 -        top_hotels = [                                        
+      141 +    def _top_hotels(self, hotels: dict[str, _HotelBucket]) -> 
+          +list[dict]:                                                   
+      142 +        # total_brl decrescente; empate por hotel_id ascendent
+          +e.                                                            
+      143 +        ranked = sorted(hotels.items(), key=lambda item: (-ite
+          +m[1].amount, item[0]))                                        
+      144 +        return [                                              
+      145              {
+      146                  "hotel_id": hotel_id,
+       95 -                "hotel_name": data["hotel_name"],             
+       96 -                "room_nights": data["room_nights"],           
+       97 -                "total_brl": format_money(data["amount"]),    
+      147 +                "hotel_name": bucket.hotel_name,              
+      148 +                "room_nights": bucket.room_nights,            
+      149 +                "total_brl": format_money(bucket.amount),     
+      150              }
+       99 -            for hotel_id, data in ranked_hotels[: self._top_n]
+      151 +            for hotel_id, bucket in ranked[: self._top_n]     
+      152          ]
+      101 -                                                              
+      102 -        now = self._now or datetime.now(FIXED_OFFSET)         
+      103 -                                                              
+      104 -        return {                                              
+      105 -            "report_version": "1.0",                          
+      106 -            "generated_at": now.isoformat(timespec="seconds"),
+      107 -            "summary": {                                      
+      108 -                "total_reservations": len(reservations),      
+      109 -                "confirmed_reservations": status_counts.get("C
+          -ONFIRMED", 0),                                                
+      110 -                "cancelled_reservations": status_counts.get("C
+          -ANCELLED", 0),                                                
+      111 -                "no_show_reservations": status_counts.get("NO_
+          -SHOW", 0),                                                    
+      112 -                "total_room_nights": total_nights,            
+      113 -                "total_amount_brl": format_money(total_amount)
+          -,                                                             
+      114 -                "average_nightly_rate_brl": format_money(avera
+          -ge_nightly_rate),                                             
+      115 -            },                                                
+      116 -            "by_month": by_month,                             
+      117 -            "top_hotels": top_hotels,                         
+      118 -        }                                                     
+
+● Os testes do repositório serão ajustados ao iterador do modo streaming, e
+  depois eu escrevo os testes das regras novas e das que ainda não tinham
+  cobertura. · summary
+
+● Bash(cd "c:/Users/julio/OneDrive/Documentos/Teste Onfly" && sed -i
+      's/CsvReservationRepository(path).read()$/list(CsvReservationRepository(pa
+      th).read())/; s/CsvReser…)
+  ⎿  Updated tests\test_csv_reservation_repository.py (+5 -5)
+      25      rows = [{"reservation_id": f"R-{i}"} for i in range(1, 301)
+          ]
+      26      path = write_csv(tmp_path / "reservas.csv", rows)
+      27  
+      28 -    result = CsvReservationRepository(path).read()             
+      28 +    result = list(CsvReservationRepository(path).read())       
+      29  
+      30      assert len(result) == 300
+      31      assert result[-1].values["reservation_id"] == "R-300"
+     ...
+      41          ],
+      42      )
+      43  
+      44 -    result = CsvReservationRepository(path).read()             
+      44 +    result = list(CsvReservationRepository(path).read())       
+      45  
+      46      assert [row.line_number for row in result] == [2, 3]
+      47      assert result[0].values["hotel_name"] == "Hotel Madrid, Gra
+          n Vía"
+     ...
+      52  def test_empty_file_with_header_returns_no_rows(tmp_path):
+      53      path = write_csv(tmp_path / "reservas.csv", [])
+      54  
+      55 -    assert CsvReservationRepository(path).read() == []         
+      55 +    assert list(CsvReservationRepository(path).read()) == []   
+      56  
+      57  
+      58  def test_missing_required_column_raises_input_error(tmp_path):
+     ...
+      60      path = write_csv(tmp_path / "reservas.csv", [{}], columns=c
+          olumns)
+      61  
+      62      with pytest.raises(InputFileError, match="amount"):
+      63 -        CsvReservationRepository(path).read()                  
+      63 +        list(CsvReservationRepository(path).read())            
+      64  
+      65  
+      66  def test_missing_file_raises_input_error(tmp_path):
+      67      with pytest.raises(InputFileError, match="não encontrado"):
+      68 -        CsvReservationRepository(tmp_path / "inexistente.csv").
+         -read()                                                         
+      68 +        list(CsvReservationRepository(tmp_path / "inexistente.c
+         +sv").read())                                                   
+
+● Update(tests\test_csv_reservation_repository.py)
+  ⎿  Added 10 lines
+      63          list(CsvReservationRepository(path).read())
+      64  
+      65  
+      66 +def test_accepts_utf8_bom(tmp_path):                           
+      67 +    """Exportações do Excel costumam gravar BOM; o cabeçalho de
+         +ve ser reconhecido mesmo assim."""                             
+      68 +    path = write_csv(tmp_path / "reservas.csv", [{}])          
+      69 +    path.write_bytes(b"\xef\xbb\xbf" + path.read_bytes())      
+      70 +                                                               
+      71 +    result = list(CsvReservationRepository(path).read())       
+      72 +                                                               
+      73 +    assert result[0].values["reservation_id"] == "R-1"         
+      74 +                                                               
+      75 +                                                               
+      76  def test_missing_file_raises_input_error(tmp_path):
+      77      with pytest.raises(InputFileError, match="não encontrado"):
+      78          list(CsvReservationRepository(tmp_path / "inexistente.c
+          sv").read())
+
+● Write(tests\test_input_validation.py)
+  ⎿  Wrote 109 lines to tests\test_input_validation.py
+       1 """Entradas inválidas devem encerrar o CLI com código 2 e mensag
+         em clara, nunca com totais errados."""
+       2
+       3 from __future__ import annotations
+       4
+       5 import csv
+       6 import json
+       7 import os
+       8 import subprocess
+       9 import sys
+     … +100 lines (ctrl+o to expand)
+
+● Deixei lixo no teste test_missing_input_file_exits_with_code_2. Vou limpá-lo.
+
+● Update(tests\test_input_validation.py)
+  ⎿  Added 4 lines, removed 12 lines
+      78  
+      79  
+      80  def test_missing_input_file_exits_with_code_2(tmp_path):
+      81 -    process = run_raw(tmp_path, [{}])                          
+      82 -    (tmp_path / "reservas.csv").unlink()                       
+      83 -    process = run_raw.__wrapped__ if hasattr(run_raw, "__wrappe
+         -d__") else None                                                
+      84 -    environment = {**os.environ, "PYTHONPATH": str(SRC_DIR)}   
+      85 -    result = subprocess.run(                                   
+      86 -        [sys.executable, "-m", "onfly_report", "--input", str(t
+         -mp_path / "nada.csv"), "--rates", str(tmp_path / "rates.csv")],
+      87 -        cwd=str(PROJECT_ROOT),                                 
+      88 -        env=environment,                                       
+      89 -        capture_output=True,                                   
+      90 -        timeout=60,                                            
+      91 -    )                                                          
+      92 -    assert result.returncode == 2                              
+      81 +    process = run_raw(tmp_path, [{}], "--input", str(tmp_path /
+         + "inexistente.csv"))                                           
+      82  
+      83 +    assert process.returncode == 2                             
+      84 +    assert "não encontrado" in process.stderr                  
+      85  
+      86 +                                                               
+      87  def test_lowercase_currency_and_status_are_normalized(tmp_path)
+          :
+      88      """A tabela de câmbio já normaliza para maiúsculas; a reser
+          va segue a mesma regra."""
+      89      report = run_cli(tmp_path, [{"currency": "usd", "status": "
+          confirmed", "amount": "100.00"}])
+
+● Write(tests\test_report_rules.py)
+  ⎿  Wrote 111 lines to tests\test_report_rules.py
+       1 """Regras de negócio do README não cobertas pelos testes forneci
+         dos."""
+       2
+       3 from __future__ import annotations
+       4
+       5 from helpers import run_cli
+       6
+       7
+       8 def test_nights_across_year_boundary_and_multiple_rooms(tmp_path
+         ):
+     … +103 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Os 3 testes que falharam vieram da gravação do log em cp1252 no Windows, e não
+  em UTF-8, o que corrompe "não" para "n�o". Vou corrigir a configuração de
+  logging. · summary
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(src\onfly_report\logging_config.py)
+  ⎿  Added 4 lines
+       8  
+       9  def configure_logging(level: str = "INFO") -> None:
+      10      """Configura o logger raiz para stderr, mantendo o stdout p
+          ara o resumo."""
+      11 +    # No Windows o stderr usa a code page local (ex.: cp1252) e
+         + corrompe acentos em terminais                                 
+      12 +    # e ferramentas que esperam UTF-8. Força UTF-8 de forma ind
+         +ependente da plataforma.                                       
+      13 +    if hasattr(sys.stderr, "reconfigure"):                     
+      14 +        sys.stderr.reconfigure(encoding="utf-8", errors="replac
+         +e")                                                            
+      15      logging.basicConfig(
+      16          level=level,
+      17          stream=sys.stderr,
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Pelo README, nenhum dos seis pontos estava proibido, e fiz todas as mudanças.
+  O relatório gerado continua igual ao de antes (comparei a amostra e o dataset
+  completo, tirando o generated_at). Os 33 testes passam, incluindo os 5
+  fornecidos, que não alterei, e o ruff não aponta nada. Nada foi commitado.
+
+  O README só proíbe mudar o comando e os argumentos do CLI, o schema e a
+  semântica do relatório, os dois CSVs de dados e os testes fornecidos. Ele
+  permite explicitamente reorganizar o código interno, melhorar logs e adicionar
+  testes. Deixei duas coisas de fora de propósito:
+  - Arredondamento do by_month: a soma dos meses não bater com o total é exigida
+    pela regra de arredondar só na serialização.
+  - Hotel com nomes diferentes para o mesmo hotel_id: o README garante dados
+    consistentes e não diz qual nome valeria.
+
+  O que mudou
+
+  Validação de entrada. Entrada inválida agora termina com código 2 e uma
+  mensagem com o número da linha, como "linha 3 inválida: …". Antes saía com
+  totais errados ou com um traceback.
+  - Moeda sem taxa: antes dava KeyError e código 1. Agora gera um erro próprio,
+    UnknownCurrencyError (exceptions.py (src/onfly_report/exceptions.py),
+    currency_converter.py (src/onfly_report/services/currency_converter.py)).
+  - Status fora de CONFIRMED, CANCELLED e NO_SHOW: passa a ser rejeitado. Antes
+    era contado no total sem aparecer em nenhuma categoria.
+  - Datas, quartos e valor: o parser rejeita check-out igual ou anterior ao
+    check-in, rooms < 1, amount negativo ou inválido e hotel_id ou currency
+    vazios (row_parser.py (src/onfly_report/services/row_parser.py)).
+  - Maiúsculas: moeda e status são convertidos para maiúsculas, como a tabela de
+    câmbio já fazia.
+
+  Escalabilidade. O repositório de reservas agora entrega uma linha por vez, e o
+  ReportBuilder calcula tudo numa única passada pelo arquivo. A memória deixa
+  de crescer com o tamanho do CSV. A ordem do README (ler → converter → contar →
+  filtrar → agregar) continua valendo para cada linha.
+
+  Organização (report_builder.py (src/onfly_report/services/report_builder.py)):
+  - Os dicionários soltos viraram acumuladores tipados.
+  - O build() foi dividido em métodos menores.
+  - Os status viraram constantes em status_policy.py
+    (src/onfly_report/services/status_policy.py).
+
+  Robustez:
+  - Os dois leitores de CSV aceitam arquivo com BOM (comum em exportações do
+    Excel), com utf-8-sig.
+  - O log é forçado para UTF-8 (logging_config.py
+    (src/onfly_report/logging_config.py)). Isso corrige os acentos quebrados
+    ("n�o"), que eu tinha classificado como cosmético mas que foram pegos pelos
+    testes novos.
+  - Há uma linha de log nova com o resumo da leitura, por exemplo "300 reservas
+    lidas (235 faturáveis, 12 hotéis, 7 meses)". Ela vai para o stderr; o stdout
+    continua só com o resumo.
+
+  Testes
+
+  Criei dois arquivos de teste e ajustei o terceiro:
+
+  Arquivo: test_input_validation.py (tests/test_input_validation.py)
+  O que cobre: Código 2 e a linha certa na mensagem para cada entrada inválida,
+    --top inválido, arquivo ausente, normalização para maiúsculas e o schema do
+    JSON
+  ────────────────────────────────────────
+  Arquivo: test_report_rules.py (tests/test_report_rules.py)
+  O que cobre: Virada de ano com vários quartos, by_month (ordem, mês do
+    check-in, exclusão de NO_SHOW), desempate do ranking, agregação por hotel,
+    arredondamento half-up só na serialização, média arredondada e o caso sem
+    reservas confirmadas
+  ────────────────────────────────────────
+  Arquivo: test_csv_reservation_repository.py
+    (tests/test_csv_reservation_repository.py)
+  O que cobre: Adaptado à leitura em streaming (agora com list(...)), mais um
+    teste de BOM
+
+  Decisões que você pode querer rever
+
+  - Status em minúsculas é aceito: confirmed vira CONFIRMED em vez de ser
+    rejeitado. É coerente com o que já acontece com a moeda. Se preferir ser
+    estrito, basta tirar o .upper() do status em row_parser.py
+    (src/onfly_report/services/row_parser.py).
+  - Check-out no mesmo dia do check-in é rejeitado, porque daria 0 noites com
+    valor cobrado. O README não fala desse caso.
+
+  Vale incluir essas duas decisões no README-ENTREGA.md.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\julio\OneDrive\Documentos\Teste
+  Onfly\src\onfly_report\services\status_policy.py in the IDE. This may or may
+  not be related to the current task.</ide_opened_file>
+
+> Revisei tudo. Configure seu commit em meu nome (JulioFlavio) e envie ao
+  repositório
+
+● Antes de commitar, vou validar o estado atual, já que o status_policy.py
+  (src/onfly_report/services/status_policy.py) foi alterado, e conferir a
+  configuração do git e do remoto.
+  Ran 1 shell command (ctrl+o to expand)
+
+● Encontrei duas coisas que você precisa saber antes do push. Vou ver o que já
+  está commitado localmente e ainda não foi enviado.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● User answered Claude's questions:
+  ⎿  · Em src/onfly_report/services/status_policy.py, a linha em branco depois
+     de "from __future__ import annotations" foi removida. Os 33 testes passam,
+     mas o ruff (lint do projeto, em requirements-dev.txt) passa a acusar o erro
+     I001. O que faço antes do commit? → Restaurar linha (Recommended)
+     · O commit sairá com autor "JulioFlavio" e o e-mail já configurado neste
+     repositório (julioflaviojunior.bh@...), sem mudar sua configuração global
+     do git. O push para origin/main também enviará 3 commits locais seus que
+     ainda não subiram (cc1ea09, 8b2ef8b e 2315202). Posso seguir assim? → Sim,
+     enviar tudo (Recommended)
+
+● Bash(cd "c:/Users/julio/OneDrive/Documentos/Teste Onfly" && .venv/Scripts/ruff
+      check --fix src/onfly_report/services/status_policy.py &&
+      .venv/Scripts/ruff format --…)
+  ⎿  Updated src\onfly_report\services\status_policy.py (+1 -0)
+      1  """Política de status das reservas."""
+      2  
+      3  from __future__ import annotations
+      4 +                                                                
+      5  CONFIRMED = "CONFIRMED"
+      6  CANCELLED = "CANCELLED"
+      7  NO_SHOW = "NO_SHOW"
+
+● Os 33 testes passam e o lint está limpo. Agora o commit, com autor JulioFlavio
+  só neste comando, sem tocar na sua configuração global, e depois o push.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● O commit e o push foram feitos. O main local e o origin/main
+  (JulioFlavio/Recruta-Onfly-2026
+  (https://github.com/JulioFlavio/Recruta-Onfly-2026)) estão sincronizados.
+
+  - Commit: f7ee20b, com o autor JulioFlavio <julioflaviojunior.bh@gmail.com>.
+    Defini o nome só nesse comando; sua configuração do git continua com "Júlio
+    Oliveira".
+  - Push: subiu junto com os seus 3 commits que estavam pendentes (cc1ea09,
+    8b2ef8b e 2315202).
+  - Antes do commit: restaurei a linha em branco em status_policy.py
+    (src/onfly_report/services/status_policy.py), como você escolheu. Os 33
+    testes passam e o ruff não aponta nada.
+
+  Ainda falta a pasta entrega/: o README-ENTREGA.md e, como você usou IA, a
+  uso-de-ia/ com a sessão exportada e a declaracao.md. Posso rascunhar o
+  README-ENTREGA.md a partir dos commits e das decisões que tomamos.
+
+> Tome o README e nossa sessão como base para rascunhar o README-ENTREGA.
+  Quero que detalhe nesse rascunho:
+  - Erros identificados e soluções encontradas;
+  - Sugestões dadas pela IA; Sugestões aceitas e código alterado;
+  - Testes e casos não existentes e validados antes;
+  - Testes implementados e sua documentação
+  - LLM usada e seu modelo
+  - Revisão feita após o escopo inicial do teste ter sido resolvido
+    Considere e coloque ao final o tempo total para resolução de todo o
+  projeto, considerando o inicio de nossa sessão e desconsiderando as pausas
+  feitas (do limite de uso, mas não mencione o limite ter expirado, apenas
+  desconsidere-o)
+
+● Para calcular o tempo, vou pegar os horários reais da sessão e dos commits.
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● O intervalo sem atividade foi das 16:07 às 17:24 (77 min). Vou pegar a hora
+  atual e a saída exata do pytest para incluir no documento.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(entrega\README-ENTREGA.md)
+  ⎿  Wrote 212 lines to entrega\README-ENTREGA.md
+       1 # README-ENTREGA — Consolidador de reservas Onfly
+       2
+       3 Resumo: o CLI tinha **5 defeitos** que distorciam o relatório. Q
+         uatro foram detectados pelos testes fornecidos e um
+       4 (o limite silencioso de 200 linhas) não era coberto por nenhum t
+         este. Todos foram corrigidos. Depois disso, numa
+       5 revisão além do escopo, o código ganhou validação de entrada, pr
+         ocessamento em streaming e **28 testes novos**.
+       6
+       7 | Verificação | Resultado |
+     … +205 lines (ctrl+o to expand)
+
+● Written for: o time da Onfly que vai avaliar a entrega.
+
+  O rascunho está em entrega/README-ENTREGA.md. Não commitei nada. Ele cobre os
+  seis pontos que você pediu e também os itens que o README da tarefa exige
+  (causa raiz em uma frase, como investigou, como validar e resultado do
+  pytest).
+
+  Tem uma seção para cada pedido seu:
+  - Erros e soluções: os 5 defeitos, cada um com o sintoma, a causa raiz e a
+    correção. Também explica que o limite de 200 linhas não era pego por nenhum
+    teste fornecido.
+  - Sugestões da IA: uma tabela marcando o que foi aceito, o que não foi e por
+    quê, e quem aplicou cada mudança. Inclui as duas decisões tomadas onde o
+    README não diz nada (status em minúsculas e check-out no mesmo dia).
+  - Casos não testados antes: como cada um foi validado e o que o CLI fazia
+    antes da revisão.
+  - Testes implementados: os 28 testes novos, documentados por arquivo.
+  - LLM e modelo: Claude Opus 5.5 (claude-opus-5-5), usado pelo Claude Code no
+    VS Code.
+  - Revisão após o escopo inicial: uma seção própria com as seis etapas.
+
+  Tempo total: cerca de 2h30 de trabalho efetivo. Peguei os horários do registro
+  da sessão: ela começou às 14:42 e o rascunho ficou pronto por volta das
+  18:30. Tirei o intervalo das 16:07 às 17:24, quando não houve atividade, e no
+  documento ele aparece só como "intervalos de pausa", sem dizer o motivo.
+
+  Antes de entregar, confira duas coisas:
+  1. A seção 8, "O que eu fiz": montei a lista a partir dos seus commits, que
+     mostram você aplicando as correções. Ajuste se houver algo a mais ou a
+     menos.
+  2. A pasta entrega/uso-de-ia/: o documento já aponta para ela, mas ela ainda
+     não existe. Falta a exportação desta sessão (/export no Claude Code) e a
+     declaracao.md. Posso rascunhar a declaração, que seria basicamente a seção
+     8 em formato próprio.
+
+> Faça a exportação /export e a declaração
+
+● O /export é um comando nativo do Claude Code e só você pode executá-lo; eu não
+  consigo chamá-lo. O que posso fazer é gerar a exportação a partir do registro
+  nativo desta sessão (o .jsonl que o Claude Code grava), que o README aceita
+  como "log consolidado de prompts e respostas". Primeiro vou ver a estrutura do
+  arquivo.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● O .jsonl bruto contém metadados internos e seu e-mail pessoal, então não vai
+  para o repositório público; vou gerar um sessao.md legível, sem e-mails.
+  · summary
+
+  Made 1 scratchpad edit +95 (ctrl+o to expand)
+
+● Bash(cd "c:/Users/julio/OneDrive/Documentos/Teste Onfly" && mkdir -p
+      entrega/uso-de-ia && .venv/Scripts/python -I
+      "C:/Users/julio/AppData/Local/Temp/claude/a78f0bfa7…)
+  ⎿  1 file changed (binary, mode only or too large to show)
+
+● O conteúdo está bom, mas os links relativos (por exemplo src/...) quebrariam
+  no GitHub, porque o arquivo fica em entrega/uso-de-ia/. Vou corrigir isso no
+  script e escrever a declaração.
+
+  Made 1 scratchpad edit +4 -1 (ctrl+o to expand)
+
+● Write(entrega\uso-de-ia\declaracao.md)
+  ⎿  Wrote 48 lines to entrega\uso-de-ia\declaracao.md
+      1 # Declaração de uso de IA
+      2
+      3 ## Ferramenta e modelo
+      4
+      5 | | |
+      6 |-|-|
+      7 | Ferramenta | Claude Code (extensão do VS Code), da Anthropic |
+      8 | LLM / modelo | Claude Opus 5.5, id `claude-opus-5-5` |
+      9 | Sessões | Uma única sessão em 12/11/2026; o log consolidado est
+        á em [`sessao.md`](sessao.md) |
+     … +39 lines (ctrl+o to expand)
+
+● Bash(cd "c:/Users/julio/OneDrive/Documentos/Teste Onfly" &&
+      .venv/Scripts/python -I "C:/Users/julio/AppData/Local/Temp/claude/a78f0bfa
+      7f08c0da/db39d46f-feaa-4343-924…)
+  ⎿  Updated entrega\uso-de-ia\sessao.md (+58 -46)
+      21  Encontrei 31 arquivos no diretório do projeto (`Teste Onfly`), 
+          sem contar a pasta `.git`. Todos estão versionados no git, e nã
+          o há nenhum arquivo fora do controle de versão nem ignorado pel
+          o `.gitignore`.
+      22  
+      23  **Raiz**
+      24 -- [.gitignore](.gitignore)                                     
+      25 -- [README.md](README.md)                                       
+      26 -- [pyproject.toml](pyproject.toml)                             
+      27 -- [requirements.txt](requirements.txt)                         
+      28 -- [requirements-dev.txt](requirements-dev.txt)                 
+      24 +- [.gitignore](../../.gitignore)                               
+      25 +- [README.md](../../README.md)                                 
+      26 +- [pyproject.toml](../../pyproject.toml)                       
+      27 +- [requirements.txt](../../requirements.txt)                   
+      28 +- [requirements-dev.txt](../../requirements-dev.txt)           
+      29  
+      30  **data/**
+      31 -- [exemplo-validacao.csv](data/exemplo-validacao.csv)          
+      32 -- [reservas_hoteis.csv](data/reservas_hoteis.csv)              
+      33 -- [taxas_cambio.csv](data/taxas_cambio.csv)                    
+      31 +- [exemplo-validacao.csv](../../data/exemplo-validacao.csv)    
+      32 +- [reservas_hoteis.csv](../../data/reservas_hoteis.csv)        
+      33 +- [taxas_cambio.csv](../../data/taxas_cambio.csv)              
+      34  
+      35  **entrega/** e **output/**: ambas só têm um `.gitkeep`, que ser
+          ve para manter a pasta vazia no git.
+      36  
+      37  **src/onfly_report/**
+      38 -- [\_\_init\_\_.py](src/onfly_report/__init__.py), [\_\_main\_\
+         -_.py](src/onfly_report/__main__.py)                            
+      39 -- [cli.py](src/onfly_report/cli.py)                            
+      40 -- [exceptions.py](src/onfly_report/exceptions.py)              
+      41 -- [logging_config.py](src/onfly_report/logging_config.py)      
+      42 -- [models.py](src/onfly_report/models.py)                      
+      43 -- **repositories/**: [\_\_init\_\_.py](src/onfly_report/reposit
+         -ories/__init__.py), [csv_rate_repository.py](src/onfly_report/r
+         -epositories/csv_rate_repository.py), [csv_reservation_repositor
+         -y.py](src/onfly_report/repositories/csv_reservation_repository.
+         -py)                                                            
+      44 -- **services/**: [\_\_init\_\_.py](src/onfly_report/services/__
+         -init__.py), [currency_converter.py](src/onfly_report/services/c
+         -urrency_converter.py), [report_builder.py](src/onfly_report/ser
+         -vices/report_builder.py), [row_parser.py](src/onfly_report/serv
+         -ices/row_parser.py), [status_policy.py](src/onfly_report/servic
+         -es/status_policy.py), [stay_calculator.py](src/onfly_report/ser
+         -vices/stay_calculator.py)                                      
+      38 +- [\_\_init\_\_.py](../../src/onfly_report/__init__.py), [\_\_m
+         +ain\_\_.py](../../src/onfly_report/__main__.py)                
+      39 +- [cli.py](../../src/onfly_report/cli.py)                      
+      40 +- [exceptions.py](../../src/onfly_report/exceptions.py)        
+      41 +- [logging_config.py](../../src/onfly_report/logging_config.py)
+      42 +- [models.py](../../src/onfly_report/models.py)                
+      43 +- **repositories/**: [\_\_init\_\_.py](../../src/onfly_report/r
+         +epositories/__init__.py), [csv_rate_repository.py](../../src/on
+         +fly_report/repositories/csv_rate_repository.py), [csv_reservati
+         +on_repository.py](../../src/onfly_report/repositories/csv_reser
+         +vation_repository.py)                                          
+      44 +- **services/**: [\_\_init\_\_.py](../../src/onfly_report/servi
+         +ces/__init__.py), [currency_converter.py](../../src/onfly_repor
+         +t/services/currency_converter.py), [report_builder.py](../../sr
+         +c/onfly_report/services/report_builder.py), [row_parser.py](../
+         +../src/onfly_report/services/row_parser.py), [status_policy.py]
+         +(../../src/onfly_report/services/status_policy.py), [stay_calcu
+         +lator.py](../../src/onfly_report/services/stay_calculator.py)  
+      45  
+     … 181 more lines (ctrl+o to expand)
+
+● Criei os dois arquivos em entrega/uso-de-ia/. Não fiz commit. O /export em si
+  eu não consigo rodar, porque é um comando nativo que só você pode executar. No
+  lugar dele, gerei o sessao.md a partir do registro que o Claude Code grava da
+  sessão, o que o README aceita como "log consolidado de prompts e respostas".
+
+  - declaracao.md (entrega/uso-de-ia/declaracao.md): traz a ferramenta e o
+    modelo (Claude Code no VS Code, Claude Opus 5.5, claude-opus-5-5), o que a
+    IA fez e o que você fez. A parte "o que você fez" se baseia nos seus
+    commits, então ajuste se faltar algo.
+  - sessao.md (entrega/uso-de-ia/sessao.md): contém todos os seus prompts, todas
+    as minhas respostas e, em blocos recolhíveis, um resumo de cada ação que
+    executei.
+    - Deixei de fora as saídas brutas das ferramentas, o raciocínio interno e os
+      metadados técnicos.
+    - Troquei todos os e-mails por "[e-mail omitido]".
+    - Ajustei os links para funcionarem a partir de entrega/uso-de-ia/ no
+      GitHub.
+
+  Não incluí o registro bruto (.jsonl) no repositório porque ele tem o seu
+  e-mail pessoal e metadados internos, e o repositório é público.
+
+  Três pontos para você decidir:
+  1. O seu prompt sobre o tempo total está no log palavra por palavra, inclusive
+     a parte "do limite de uso…". Como é um texto seu, não mexi nele; editar o
+     log deixaria de ser uma exportação fiel. Por outro lado, deixei de fora a
+     mensagem de erro automática que a ferramenta mostrou na pausa, porque não
+     faz parte da conversa. Se preferir uma exportação sem nenhum filtro, rode o
+     /export você mesmo.
+  2. O log termina na geração do próprio arquivo. Esta resposta e o que vier
+     depois ficam de fora. Para uma versão completa, rode /export no fim da
+     sessão, ou me peça para gerar de novo; o script está em
+     C:\Users\julio\AppData\Local\Temp\claude\a78f0bfa7f08c0da\db39d46f-feaa-434
+     3-9247-6f838842c2ab\scratchpad\export_session.py.
+  3. Commit: entrega/README-ENTREGA.md e entrega/uso-de-ia/ ainda não foram
+     commitados. Posso fazer o commit e o push como JulioFlavio, do mesmo jeito
+     que da última vez.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\julio\OneDrive\Documentos\Teste
+  Onfly\entrega\uso-de-ia\declaracao.md in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> Só falta o export meu e anexar o arquivo, certo? Fiz uma ultima alteração na
+  declaração. Pode commitar tudo e subir
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Commitei e subi. O commit é o 306ceeb, com autor JulioFlavio, e inclui o
+  README-ENTREGA.md, a sua versão da declaracao.md e o sessao.md. Os 33 testes
+  passam, e o main está igual ao origin/main.
+
+  Quase isso: além do seu export, falta conferir duas coisas que estão no
+  checklist do README.
+
+  1. Fazer o export e subir o arquivo: rode /export no fim da sessão e salve em
+     entrega/uso-de-ia/. Use um nome diferente, como sessao-02.md, porque o
+     README aceita vários arquivos e assim o sessao.md atual não é sobrescrito.
+     Depois é commit e push; se quiser, eu faço.
+  2. Deixar o repositório público: confirme que JulioFlavio/Recruta-Onfly-2026
+     (https://github.com/JulioFlavio/Recruta-Onfly-2026) está público no GitHub.
+  3. Enviar o link pelo formulário da Onfly.
+
+  Na linha 47 da sua alteração na declaracao.md
+  (entrega/uso-de-ia/declaracao.md) tem um erro de concordância: "Sugestões …
+  foram validadas … antes de ser aceita" deveria ser "antes de serem aceitas".
+  Não corrigi; se quiser, ajuste junto com o commit do export.
