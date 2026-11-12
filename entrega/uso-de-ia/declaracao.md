@@ -45,4 +45,4 @@
 
 - Nenhum teste fornecido foi alterado. Os dados em `data/` não foram alterados.
 - Sugestões da IA foram validadas pela suíte de testes (33 passando) e pela comparação com a amostra do README antes
-  de ser aceita.
+  de serem aceitas.
