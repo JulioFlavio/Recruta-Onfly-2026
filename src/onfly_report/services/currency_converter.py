@@ -7,4 +7,4 @@ from decimal import Decimal
 
 def convert_to_brl(amount: Decimal, currency: str, rates: dict[str, Decimal]) -> Decimal:
     """Converte um valor na moeda informada para BRL usando a taxa da tabela."""
-    return Decimal(amount * rates[currency])
+    return amount * rates[currency]
