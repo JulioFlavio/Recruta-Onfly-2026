@@ -25,7 +25,7 @@ def test_reads_every_row_without_limit(tmp_path):
     rows = [{"reservation_id": f"R-{i}"} for i in range(1, 301)]
     path = write_csv(tmp_path / "reservas.csv", rows)
 
-    result = CsvReservationRepository(path).read()
+    result = list(CsvReservationRepository(path).read())
 
     assert len(result) == 300
     assert result[-1].values["reservation_id"] == "R-300"
@@ -41,7 +41,7 @@ def test_keeps_raw_values_and_physical_line_numbers(tmp_path):
         ],
     )
 
-    result = CsvReservationRepository(path).read()
+    result = list(CsvReservationRepository(path).read())
 
     assert [row.line_number for row in result] == [2, 3]
     assert result[0].values["hotel_name"] == "Hotel Madrid, Gran Vía"
@@ -52,7 +52,7 @@ def test_keeps_raw_values_and_physical_line_numbers(tmp_path):
 def test_empty_file_with_header_returns_no_rows(tmp_path):
     path = write_csv(tmp_path / "reservas.csv", [])
 
-    assert CsvReservationRepository(path).read() == []
+    assert list(CsvReservationRepository(path).read()) == []
 
 
 def test_missing_required_column_raises_input_error(tmp_path):
@@ -60,9 +60,19 @@ def test_missing_required_column_raises_input_error(tmp_path):
     path = write_csv(tmp_path / "reservas.csv", [{}], columns=columns)
 
     with pytest.raises(InputFileError, match="amount"):
-        CsvReservationRepository(path).read()
+        list(CsvReservationRepository(path).read())
+
+
+def test_accepts_utf8_bom(tmp_path):
+    """Exportações do Excel costumam gravar BOM; o cabeçalho deve ser reconhecido mesmo assim."""
+    path = write_csv(tmp_path / "reservas.csv", [{}])
+    path.write_bytes(b"\xef\xbb\xbf" + path.read_bytes())
+
+    result = list(CsvReservationRepository(path).read())
+
+    assert result[0].values["reservation_id"] == "R-1"
 
 
 def test_missing_file_raises_input_error(tmp_path):
     with pytest.raises(InputFileError, match="não encontrado"):
-        CsvReservationRepository(tmp_path / "inexistente.csv").read()
+        list(CsvReservationRepository(tmp_path / "inexistente.csv").read())

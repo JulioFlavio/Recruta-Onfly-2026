@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+import logging
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
+from ..exceptions import InputFileError, UnknownCurrencyError
+from ..models import Reservation
 from ..repositories.csv_rate_repository import CsvRateRepository
 from ..repositories.csv_reservation_repository import CsvReservationRepository
 from .currency_converter import convert_to_brl
 from .row_parser import RowParser
-from .status_policy import is_billable
+from .status_policy import CANCELLED, CONFIRMED, NO_SHOW, is_billable
 from .stay_calculator import calculate_room_nights
 
+logger = logging.getLogger(__name__)
+
+REPORT_VERSION = "1.0"
 MONEY_QUANTUM = Decimal("0.01")
 FIXED_OFFSET = timezone(timedelta(hours=-3))
 
@@ -22,8 +29,27 @@ def format_money(value: Decimal) -> str:
     return str(value.quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP))
 
 
+@dataclass
+class _Bucket:
+    """Acumulador de reservas faturáveis (valores exatos, sem arredondamento)."""
+
+    reservations: int = 0
+    room_nights: int = 0
+    amount: Decimal = field(default_factory=Decimal)
+
+    def add(self, room_nights: int, amount: Decimal) -> None:
+        self.reservations += 1
+        self.room_nights += room_nights
+        self.amount += amount
+
+
+@dataclass
+class _HotelBucket(_Bucket):
+    hotel_name: str = ""
+
+
 class ReportBuilder:
-    """Orquestra leitura, conversão e agregação."""
+    """Orquestra leitura, conversão e agregação em uma única passada pelo arquivo."""
 
     def __init__(
         self,
@@ -38,81 +64,89 @@ class ReportBuilder:
         self._now = now
 
     def build(self) -> dict:
-        parser = RowParser()
-        reservations = [parser.parse(raw) for raw in self._reservation_repository.read()]
         rates = self._rate_repository.read()
+        parser = RowParser()
 
-        status_counts = {"CONFIRMED": 0, "CANCELLED": 0, "NO_SHOW": 0}
-        for reservation in reservations:
-            status_counts[reservation.status] = status_counts.get(reservation.status, 0) + 1
+        status_counts: Counter[str] = Counter()
+        total = _Bucket()
+        monthly: defaultdict[str, _Bucket] = defaultdict(_Bucket)
+        hotels: defaultdict[str, _HotelBucket] = defaultdict(_HotelBucket)
 
-        confirmed = [row for row in reservations if is_billable(row.status)]
+        # ler → converter tipos → contar status → filtrar CONFIRMED → agregar (linha a linha)
+        for raw in self._reservation_repository.read():
+            reservation = parser.parse(raw)
+            status_counts[reservation.status] += 1
+            if not is_billable(reservation.status):
+                continue
 
-        monthly: dict[str, dict] = defaultdict(
-            lambda: {"reservations": 0, "room_nights": 0, "amount": Decimal("0")}
+            room_nights = calculate_room_nights(reservation.checkin, reservation.checkout, reservation.rooms)
+            amount_brl = self._convert(reservation, rates)
+
+            total.add(room_nights, amount_brl)
+            monthly[reservation.checkin.strftime("%Y-%m")].add(room_nights, amount_brl)
+            hotel = hotels[reservation.hotel_id]
+            hotel.hotel_name = reservation.hotel_name
+            hotel.add(room_nights, amount_brl)
+
+        total_reservations = sum(status_counts.values())
+        logger.info(
+            "%d reservas lidas (%d faturáveis, %d hotéis, %d meses)",
+            total_reservations,
+            total.reservations,
+            len(hotels),
+            len(monthly),
         )
-        hotels: dict[str, dict] = defaultdict(
-            lambda: {"hotel_name": "", "room_nights": 0, "amount": Decimal("0")}
-        )
-
-        total_nights = 0
-        total_amount = Decimal("0")
-
-        for row in confirmed:
-            room_nights = calculate_room_nights(row.checkin, row.checkout, row.rooms)
-            amount_brl = convert_to_brl(row.amount, row.currency, rates)
-
-            total_nights += room_nights
-            total_amount += amount_brl
-
-            month_key = row.checkin.strftime("%Y-%m")
-            monthly[month_key]["reservations"] += 1
-            monthly[month_key]["room_nights"] += room_nights
-            monthly[month_key]["amount"] += amount_brl
-
-            hotels[row.hotel_id]["hotel_name"] = row.hotel_name
-            hotels[row.hotel_id]["room_nights"] += room_nights
-            hotels[row.hotel_id]["amount"] += amount_brl
-
-        average_nightly_rate = (
-            total_amount / Decimal(total_nights) if total_nights > 0 else Decimal("0")
-        )
-
-        by_month = [
-            {
-                "month": month,
-                "reservations": data["reservations"],
-                "room_nights": data["room_nights"],
-                "total_brl": format_money(data["amount"]),
-            }
-            for month, data in sorted(monthly.items())
-        ]
-
-        ranked_hotels = sorted(hotels.items(), key=lambda item: (-item[1]["amount"], item[0]))
-        top_hotels = [
-            {
-                "hotel_id": hotel_id,
-                "hotel_name": data["hotel_name"],
-                "room_nights": data["room_nights"],
-                "total_brl": format_money(data["amount"]),
-            }
-            for hotel_id, data in ranked_hotels[: self._top_n]
-        ]
-
-        now = self._now or datetime.now(FIXED_OFFSET)
 
         return {
-            "report_version": "1.0",
-            "generated_at": now.isoformat(timespec="seconds"),
+            "report_version": REPORT_VERSION,
+            "generated_at": (self._now or datetime.now(FIXED_OFFSET)).isoformat(timespec="seconds"),
             "summary": {
-                "total_reservations": len(reservations),
-                "confirmed_reservations": status_counts.get("CONFIRMED", 0),
-                "cancelled_reservations": status_counts.get("CANCELLED", 0),
-                "no_show_reservations": status_counts.get("NO_SHOW", 0),
-                "total_room_nights": total_nights,
-                "total_amount_brl": format_money(total_amount),
-                "average_nightly_rate_brl": format_money(average_nightly_rate),
+                "total_reservations": total_reservations,
+                "confirmed_reservations": status_counts[CONFIRMED],
+                "cancelled_reservations": status_counts[CANCELLED],
+                "no_show_reservations": status_counts[NO_SHOW],
+                "total_room_nights": total.room_nights,
+                "total_amount_brl": format_money(total.amount),
+                "average_nightly_rate_brl": format_money(self._average_nightly_rate(total)),
             },
-            "by_month": by_month,
-            "top_hotels": top_hotels,
+            "by_month": self._by_month(monthly),
+            "top_hotels": self._top_hotels(hotels),
         }
+
+    @staticmethod
+    def _convert(reservation: Reservation, rates: dict[str, Decimal]) -> Decimal:
+        try:
+            return convert_to_brl(reservation.amount, reservation.currency, rates)
+        except UnknownCurrencyError as err:
+            raise InputFileError(f"linha {reservation.line_number} inválida: {err}") from err
+
+    @staticmethod
+    def _average_nightly_rate(total: _Bucket) -> Decimal:
+        if total.room_nights <= 0:
+            return Decimal("0")
+        return total.amount / Decimal(total.room_nights)
+
+    @staticmethod
+    def _by_month(monthly: dict[str, _Bucket]) -> list[dict]:
+        return [
+            {
+                "month": month,
+                "reservations": bucket.reservations,
+                "room_nights": bucket.room_nights,
+                "total_brl": format_money(bucket.amount),
+            }
+            for month, bucket in sorted(monthly.items())
+        ]
+
+    def _top_hotels(self, hotels: dict[str, _HotelBucket]) -> list[dict]:
+        # total_brl decrescente; empate por hotel_id ascendente.
+        ranked = sorted(hotels.items(), key=lambda item: (-item[1].amount, item[0]))
+        return [
+            {
+                "hotel_id": hotel_id,
+                "hotel_name": bucket.hotel_name,
+                "room_nights": bucket.room_nights,
+                "total_brl": format_money(bucket.amount),
+            }
+            for hotel_id, bucket in ranked[: self._top_n]
+        ]

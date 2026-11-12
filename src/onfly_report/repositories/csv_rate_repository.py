@@ -20,7 +20,7 @@ class CsvRateRepository:
     def read(self) -> dict[str, Decimal]:
         rates: dict[str, Decimal] = {}
         try:
-            with self._path.open("r", encoding="utf-8", newline="") as handle:
+            with self._path.open("r", encoding="utf-8-sig", newline="") as handle:
                 reader = csv.DictReader(handle)
                 missing = [column for column in REQUIRED_COLUMNS if column not in (reader.fieldnames or [])]
                 if missing:

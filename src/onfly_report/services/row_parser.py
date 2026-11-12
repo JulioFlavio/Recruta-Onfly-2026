@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 
 from ..exceptions import InputFileError
 from ..models import RawRow, Reservation
+from .status_policy import VALID_STATUSES
 
 
 class RowParser:
@@ -18,23 +19,49 @@ class RowParser:
 
     def parse(self, raw: RawRow) -> Reservation:
         values = raw.values
+
+        def text(column: str) -> str:
+            return (values.get(column) or "").strip()
+
         try:
-            return Reservation(
-                reservation_id=(values.get("reservation_id") or "").strip(),
-                traveler_name=(values.get("traveler_name") or "").strip(),
-                company_id=(values.get("company_id") or "").strip(),
-                hotel_id=(values.get("hotel_id") or "").strip(),
-                hotel_name=(values.get("hotel_name") or "").strip(),
-                city=(values.get("city") or "").strip(),
-                country=(values.get("country") or "").strip(),
-                checkin=date.fromisoformat((values.get("checkin_date") or "").strip()),
-                checkout=date.fromisoformat((values.get("checkout_date") or "").strip()),
-                rooms=int((values.get("rooms") or "").strip()),
-                status=(values.get("status") or "").strip(),
-                currency=(values.get("currency") or "").strip(),
-                amount=Decimal((values.get("amount") or "").strip()),
-                payment_method=(values.get("payment_method") or "").strip(),
+            reservation = Reservation(
+                reservation_id=text("reservation_id"),
+                traveler_name=text("traveler_name"),
+                company_id=text("company_id"),
+                hotel_id=text("hotel_id"),
+                hotel_name=text("hotel_name"),
+                city=text("city"),
+                country=text("country"),
+                checkin=date.fromisoformat(text("checkin_date")),
+                checkout=date.fromisoformat(text("checkout_date")),
+                rooms=int(text("rooms")),
+                status=text("status").upper(),
+                currency=text("currency").upper(),
+                amount=Decimal(text("amount")),
+                payment_method=text("payment_method"),
                 line_number=raw.line_number,
             )
         except (ValueError, InvalidOperation) as err:
             raise InputFileError(f"linha {raw.line_number} inválida: {err}") from err
+
+        problem = self._find_problem(reservation)
+        if problem:
+            raise InputFileError(f"linha {raw.line_number} inválida: {problem}")
+        return reservation
+
+    @staticmethod
+    def _find_problem(reservation: Reservation) -> str | None:
+        """Regras de consistência que o tipo sozinho não garante."""
+        if reservation.status not in VALID_STATUSES:
+            return f"status desconhecido {reservation.status!r} (esperado: {', '.join(sorted(VALID_STATUSES))})"
+        if not reservation.hotel_id:
+            return "hotel_id vazio"
+        if not reservation.currency:
+            return "currency vazia"
+        if reservation.checkout <= reservation.checkin:
+            return f"checkout ({reservation.checkout}) deve ser posterior ao checkin ({reservation.checkin})"
+        if reservation.rooms < 1:
+            return f"rooms deve ser >= 1 (recebido {reservation.rooms})"
+        if not reservation.amount.is_finite() or reservation.amount < 0:
+            return f"amount deve ser um número >= 0 (recebido {reservation.amount})"
+        return None
